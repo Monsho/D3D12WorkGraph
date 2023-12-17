@@ -1,0 +1,4 @@
+/packages
+/x64
+/D3D12WorkGraph/x64
+/D3D12WorkGraph/D3D12WorkGraph.vcxproj.user
