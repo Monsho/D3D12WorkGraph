@@ -373,11 +373,12 @@ int main()
 		struct FirstNodeRecord
 		{
 			UINT	GridSize[3];
+			UINT	DispatchIndex;
 			UINT	Value;
 		};
 		FirstNodeRecord InputRecords[] = {
-			{{2, 1, 1}, 10},
-			{{4, 1, 1}, 22},
+			{{2, 1, 1}, 0, 1},
+			{{2, 1, 1}, 1, 3},
 		};
 
 		// setup program.
@@ -425,7 +426,7 @@ int main()
 
 		for (UINT i = 0; i < 16; i++)
 		{
-			fprintf_s(stdout, "No.%d : %d\n", i, result[i]);
+			fprintf_s(stdout, "%d, %d, %d, %d\n", result[i * 4 + 0], result[i * 4 + 1], result[i * 4 + 2], result[i * 4 + 3]);
 		}
 	}
 
