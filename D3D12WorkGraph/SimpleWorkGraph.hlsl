@@ -19,8 +19,14 @@ struct ThirdNodeRecord
 	uint	Value;
 };
 
+struct ForthNodeRecord
+{
+	uint	BufferIndex;
+	uint	Value;
+};
+
 #define FirstNodeThreadX 4
-#define ENABLE_THIRD_NODE 0
+#define ENABLE_THIRD_NODE 1
 
 [Shader("node")]
 [NodeLaunch("broadcasting")]
@@ -71,35 +77,71 @@ void SecondNode(
 void SecondNode(
 	uint gtid : SV_GroupThreadID,
 	[MaxRecords(16)] GroupNodeInputRecords<SecondNodeRecord> inputRecord,
-	[MaxRecords(16)] NodeOutput<ThirdNodeRecord> ThirdNode)
+	[MaxRecords(16)] [NodeArraySize(2)] NodeOutputArray<ThirdNodeRecord> ThirdNode,
+	[MaxRecords(1)] NodeOutput<ForthNodeRecord> ForthNode)
 {
 	if (gtid >= inputRecord.Count())
 	{
 		return;
 	}
-	
+
 	uint value = inputRecord[gtid].Value;
 	//uint sum = WaveActiveSum(value);
 	uint sum = WavePrefixSum(value) + value;
 
-	bool bThreadLaunch = (sum & 0x01) != 0;
-	ThreadNodeOutputRecords<ThirdNodeRecord> outRecs =
-		ThirdNode.GetThreadNodeOutputRecords(bThreadLaunch ? 1 : 0);
-	if (bThreadLaunch)
+	uint procIndex = (gtid & 0x01);
+	ThreadNodeOutputRecords<ThirdNodeRecord> outThread =
+		ThirdNode[procIndex].GetThreadNodeOutputRecords(1);
+	outThread.Get().BufferIndex = inputRecord[gtid].BufferIndex;
+	outThread.Get().Value = sum;
+
+	outThread.OutputComplete();
+
+	bool bLaunchBroadcast = gtid == 0;
+	GroupNodeOutputRecords<ForthNodeRecord> outBroadcast = ForthNode.GetGroupNodeOutputRecords(1);
+	if (bLaunchBroadcast)
 	{
-		outRecs.Get().BufferIndex = inputRecord[gtid].BufferIndex;
-		outRecs.Get().Value = sum;
+		outBroadcast.Get().BufferIndex = 0;
+		outBroadcast.Get().Value = 1000;
 	}
-	outRecs.OutputComplete();
+	outBroadcast.OutputComplete();
 }
 
 [Shader("node")]
+[NodeID("ThirdNode", 0)]
 [NodeLaunch("thread")]
-void ThirdNode(ThreadNodeInputRecord<ThirdNodeRecord> inputRecord)
+void ThirdNode0(ThreadNodeInputRecord<ThirdNodeRecord> inputRecord)
 {
 	uint value = inputRecord.Get().Value;
 	uint sum = WavePrefixSum(value) + value;
-	rwResult[inputRecord.Get().BufferIndex] = sum;
+	uint ov;
+	InterlockedAdd(rwResult[inputRecord.Get().BufferIndex], sum, ov);
+}
+
+[Shader("node")]
+[NodeID("ThirdNode", 1)]
+[NodeLaunch("thread")]
+void ThirdNode1(ThreadNodeInputRecord<ThirdNodeRecord> inputRecord)
+{
+	uint value = inputRecord.Get().Value;
+	uint sum = WaveActiveSum(value);
+	uint ov;
+	InterlockedAdd(rwResult[inputRecord.Get().BufferIndex], sum, ov);
+}
+
+[Shader("node")]
+[NodeLaunch("broadcasting")]
+[NodeDispatchGrid(2,1,1)]
+[NumThreads(16, 1, 1)]
+void ForthNode(
+	uint dtid : SV_DispatchThreadID,
+	DispatchNodeInputRecord<ForthNodeRecord> inputRecord)
+{
+	ForthNodeRecord inRec = inputRecord.Get();
+	uint bindex = inRec.BufferIndex + dtid;
+
+	uint ov;
+	InterlockedAdd(rwResult[bindex], inRec.Value, ov);
 }
 
 #endif
